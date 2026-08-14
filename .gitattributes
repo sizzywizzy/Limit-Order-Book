@@ -1,0 +1,12 @@
+# Normalise line endings. This project is edited on Windows and built in WSL,
+# and CRLF leaking into a shell script or a golden replay file causes failures
+# that look like logic bugs.
+* text=auto eol=lf
+
+*.png binary
+*.pdf binary
+*.zip binary
+
+# Replay fixtures and benchmark output must be compared byte for byte.
+*.csv  text eol=lf
+*.golden -text -diff

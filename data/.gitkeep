@@ -1,0 +1,6 @@
+Benchmark output lands here. Raw sample CSVs are gitignored: they are large and
+a run regenerates them. What gets committed is the summary table in RESULTS.md
+and the figures under docs/figures/.
+
+Every run is reproducible from its recorded seed, so the raw samples are not
+the artifact — the seed and the configuration are.

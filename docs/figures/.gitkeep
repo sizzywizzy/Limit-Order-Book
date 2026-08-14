@@ -1,0 +1,6 @@
+Figures live here, and every one of them is generated:
+
+    python3 scripts/plot.py data/results.csv --outdir docs/figures
+
+The architecture diagram is the one exception — draw it once and export it as
+docs/figures/architecture.png, then replace the ASCII sketch in README.md.

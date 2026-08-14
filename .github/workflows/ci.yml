@@ -1,0 +1,95 @@
+name: build and test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.compiler }} · ${{ matrix.build_type }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: g++
+            build_type: Release
+          - compiler: clang++
+            build_type: Release
+          - compiler: g++
+            build_type: Debug
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Catch2 is fetched at configure time; caching it keeps CI under a minute.
+      - name: Cache Catch2
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ matrix.compiler }}-${{ hashFiles('tests/CMakeLists.txt') }}
+
+      - name: Configure
+        run: >
+          cmake -B build
+          -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DOB_WERROR=ON
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  sanitizers:
+    # The pool's use-after-free hazard (ARCHITECTURE.md 3.5) is the reason this
+    # job exists. It is cheap now and will be the job that earns its keep once
+    # the differential suite lands in phase 2.
+    name: asan + ubsan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -B build-asan
+          -DCMAKE_BUILD_TYPE=Debug
+          -DOB_SANITIZE=ON
+          -DOB_WERROR=ON
+          -DOB_BUILD_BENCH=OFF
+
+      - name: Build
+        run: cmake --build build-asan -j"$(nproc)"
+
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build-asan --output-on-failure
+
+  scripts:
+    name: plot.py
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas matplotlib
+      - name: Smoke-test the plot script against the documented CSV contract
+        run: |
+          mkdir -p /tmp/plotcheck
+          printf 'engine,operation,latency_ns\n' > /tmp/plotcheck/results.csv
+          for i in $(seq 1 200); do
+            printf 'naive,cancel,%d\nfast,cancel,%d\n' "$((300 + i))" "$((30 + i))" \
+              >> /tmp/plotcheck/results.csv
+          done
+          python scripts/plot.py /tmp/plotcheck/results.csv --outdir /tmp/plotcheck
+          test -f /tmp/plotcheck/latency_percentiles.md

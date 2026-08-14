@@ -1,0 +1,5 @@
+The engine is header-only for now, so this directory is empty.
+
+When a translation unit lands here, change the `ob` target in the top-level
+CMakeLists.txt from INTERFACE to STATIC, make the include directory PUBLIC, and
+add the sources. Nothing downstream needs to change.
