@@ -45,6 +45,21 @@ constexpr Side opposite(Side s) noexcept {
     return s == Side::Buy ? Side::Sell : Side::Buy;
 }
 
+// Sentinel for "no slot" in the index-linked structures of the optimised
+// engine (order pool, intrusive FIFOs, tiered bitmap, id index). Slots are
+// 32-bit indices rather than pointers: half the size, so twice the link
+// density per cache line. See DECISIONS.md 004.
+inline constexpr std::uint32_t npos32 = 0xFFFFFFFFu;
+
+// One row of a level-2 depth snapshot, best price first.
+struct LevelView {
+    Price         price{0};
+    Quantity      qty{0};     // cached aggregate resting quantity
+    std::uint32_t orders{0};  // number of resting orders at this price
+
+    friend bool operator==(const LevelView&, const LevelView&) = default;
+};
+
 // True if `price` is at least as good as `reference` for a participant on
 // `side` — higher is better for a buyer, lower for a seller. This is the single
 // definition of "better price" used by every price comparison in the engine.
