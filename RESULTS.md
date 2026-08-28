@@ -206,10 +206,67 @@ unattributable either way. Recorded rather than dropped.
 
 ## Profiling evidence
 
-Not yet collected. `perf stat` / cachegrind require the Linux toolchain (WSL2 or CI); the
-Windows baseline above was produced first so the profiling session has numbers to be checked
-against. Planned: cycles, instructions, IPC, cache-miss and branch-miss rates for both engines
-on the identical seed-5 workload.
+### Hardware counters — built, and blocked by the hardware
+
+`ob_bench --counters` reads cycles, instructions, cache references, cache misses and branch
+misses directly through `perf_event_open`, bracketing the measured region only (warm-up runs
+outside the counters, exactly as the discarded latency samples do). It reads them itself
+rather than shelling out to `perf stat` for a specific reason: `perf stat` aggregates over the
+whole process, so it cannot separate the cancel path from the add path, and "cycles per
+cancel" is the number this project wants.
+
+**It does not work on this machine, and the reason is worth recording.** Under WSL2:
+
+```
+counters unavailable: perf_event_open failed: No such file or directory — software events
+work, so perf_event_open is permitted; the hardware PMU is not exposed to this kernel
+(expected under WSL2 and most VMs). Run on bare metal for counters.
+```
+
+The tool distinguishes the two failures deliberately: it retries with a `PERF_TYPE_SOFTWARE`
+event, which needs no PMU. That succeeds, so the syscall path and the permissions are fine
+(`perf_event_paranoid` is 2, which permits per-process user-space counting) and the hardware
+events return `ENOENT` because Hyper-V does not virtualise the performance monitoring unit into
+the guest. Installing `linux-tools` or building `perf` from the WSL2 kernel source would hit
+exactly the same `ENOENT` — this is not a tooling gap, and it is not fixable from inside the
+VM. The measurement needs bare-metal Linux; the code is written and waiting for it.
+
+### What the counters would have answered, tested another way
+
+The [depth sweep](#cancel-latency-vs-book-size) leaves a question: the optimised engine's
+cancel p50 grows 2.2× with book size even though its cancel path contains no loop, so its
+instruction count cannot depend on how many orders are resting. The explanation has to be the
+memory hierarchy — but "has to be" is an argument, not a measurement.
+
+Without counters, the way to test it is to vary the memory footprint while holding everything
+else fixed. `--capacity` sizes the order pool (32 B per slot) and, through it, the id index
+(16 B per cell, table at 2× capacity rounded to a power of two). At depth 50 the book holds
+219 resting orders in every row below; only the address space those live entries are scattered
+across changes:
+
+| Capacity | Pool | Id index | Resting orders | cancel p50 | p99 |
+|---|---|---|---|---|---|
+| 2,048 | 64 KiB | 64 KiB | 219 | 132 | 353 |
+| 8,192 | 256 KiB | 256 KiB | 219 | 150 | 421 |
+| 32,768 | 1 MiB | 1 MiB | 219 | 149 | 456 |
+| 131,072 | 4 MiB | 4 MiB | 219 | 136 | 470 |
+| 524,288 | 16 MiB | 16 MiB | 219 | 150 | 535 |
+| 2,097,152 | 64 MiB | 64 MiB | 219 | 147 | 563 |
+
+**A 1024× increase in allocated footprint costs 1.11× on cancel p50** (132 → 147 ns), against
+the 2.2× that a 174× increase in *live* orders costs. The p99 does climb steadily (353 → 563
+ns, 1.6×), which is the tail one would expect from spreading 219 live entries across 64 MiB of
+address space: more distinct pages touched, more TLB pressure, but the same number of hot cache
+lines.
+
+So the refinement is: **what costs is the number of distinct live entries touched, not the size
+of the structures holding them.** 219 live orders occupy 219 cache lines whether the table
+around them is 64 KiB or 64 MiB; 8,000 live orders occupy 8,000 lines, and that is what pushes
+the working set out of L1 and into L2. My original explanation in the scaling section blamed
+the structures' size, and this measurement says that part was wrong. Counters would still be
+better evidence — this is inference from a controlled variable rather than a direct cache-miss
+count — but it is the sharper of the two claims and it is falsifiable, which the original was
+not.
 
 ### Allocation count in the steady state
 
@@ -262,12 +319,15 @@ line is linear in N to within the noise, which is what an unindexed scan should 
 largest book measured the gap is a factor of 200.
 
 The interesting result is that the optimised engine is *not* perfectly flat. 2.2× over that
-range is real and it is not the algorithm — the cancel path executes the same instruction
-count at every depth. It is the memory hierarchy: at 8,000 resting orders the pool spans
-~256 KiB and the id index 2 MiB, so the hash probe and the slot access that were L1/L2 hits
-at depth 10 start missing to L3. **O(1) in operations is not O(1) in cache**, and this plot is
-where that distinction becomes visible rather than theoretical. `perf stat` is the measurement
-that would confirm the mechanism — see [Profiling evidence](#profiling-evidence).
+range is real and it is not the algorithm — the cancel path contains no loop, so it executes
+the same instruction count at every depth. It is the memory hierarchy: 8,000 live orders are
+8,000 distinct cache lines in the pool and 8,000 more in the id index, which no longer fit
+where 59 orders' worth did. **O(1) in operations is not O(1) in cache**, and this plot is
+where that distinction becomes visible rather than theoretical.
+
+That the cause is the *live* set rather than the size of the structures is not an assumption
+here — it is measured in [Profiling evidence](#profiling-evidence) by holding the book size
+fixed and growing the allocated footprint 1024×, which costs only 1.11×.
 
 ### Latency vs cancel ratio
 
@@ -321,3 +381,7 @@ Stated honestly rather than left to be discovered:
   comparability, so neither measures an unbounded-book design.
 - **Single machine, single compiler, single run family.** No cross-platform numbers yet; the
   CI matrix builds and tests on Linux gcc/clang but does not benchmark.
+- **No hardware counters anywhere in this document.** The cache explanation for the depth
+  curve is inference from a controlled variable, not a measured miss rate, because this
+  machine's PMU is not visible to WSL2 (see Profiling evidence). Treat it as the best
+  available account rather than a confirmed mechanism until it runs on bare metal.

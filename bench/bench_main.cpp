@@ -47,6 +47,7 @@ struct Args {
     obbench::FlowConfig cfg;
     std::string replay_out;  // non-empty ⇒ replay recording mode
     obbench::ReplayConfig replay;
+    bool counters = false;   // read hardware counters over the measured region
     bool ok = false;
 };
 
@@ -99,12 +100,21 @@ Args parse(int argc, char** argv) {
             a.ok = a.ok && parse_real(val, a.cfg.reduce_ratio);
         } else if (is("--depth=")) {
             a.ok = a.ok && parse_num(val, a.cfg.depth);
+        } else if (is("--capacity=")) {
+            // Sizes the order pool and, through it, the id index — so this
+            // varies the engine's memory footprint independently of how many
+            // orders are actually resting.
+            a.ok = a.ok && parse_num(val, a.cfg.capacity);
+        } else if (is("--ticks=")) {
+            a.ok = a.ok && parse_num(val, a.cfg.num_ticks);
         } else if (is("--seed=")) {
             a.ok = a.ok && parse_num(val, tmp);
             a.cfg.seed = tmp;
             a.replay.seed = tmp;
         } else if (is("--out=")) {
             a.out = val;
+        } else if (std::strcmp(arg, "--counters") == 0) {
+            a.counters = true;
         } else if (is("--replay-out=")) {
             a.replay_out = val;
         } else if (is("--replay-ops=")) {
@@ -147,7 +157,8 @@ void usage() {
         "usage:\n"
         "  ob_bench --engine={naive|fast} --orders=N [--cancel-ratio=R]\n"
         "           [--aggressive-fraction=F] [--reduce-ratio=R] [--depth=L]\n"
-        "           [--seed=S] [--warmup=W] [--out=FILE]\n"
+        "           [--capacity=N] [--ticks=N] [--seed=S] [--warmup=W]\n"
+        "           [--out=FILE] [--counters]\n"
         "\n"
         "  ob_bench --replay-out=FILE [--replay-ops=N] [--seed=S]\n"
         "           [--replay-base=P] [--replay-ticks=N] [--replay-capacity=N]\n"
@@ -205,9 +216,16 @@ int run(const Args& a) {
     samples.add_aggressive.reserve(a.orders);
     samples.reduce.reserve(a.orders);
 
+    obbench::PerfCounters counters;
+    if (a.counters && !counters.available()) {
+        std::fprintf(stderr, "counters unavailable: %s\n",
+                     counters.error().c_str());
+    }
+
     const auto wall0 = std::chrono::steady_clock::now();
-    const obbench::RunStats stats =
-        obbench::run_flow(book, a.cfg, a.orders, a.warmup, samples);
+    const obbench::RunStats stats = obbench::run_flow(
+        book, a.cfg, a.orders, a.warmup, samples,
+        a.counters ? &counters : nullptr);
     const auto wall1 = std::chrono::steady_clock::now();
     const double secs =
         std::chrono::duration<double>(wall1 - wall0).count();
@@ -220,6 +238,18 @@ int run(const Args& a) {
                 "reduce=%zu\n",
                 samples.cancel.size(), samples.add_passive.size(),
                 samples.add_aggressive.size(), samples.reduce.size());
+
+    if (stats.counted && stats.measured > 0) {
+        const double m = static_cast<double>(stats.measured);
+        std::printf("counters over the measured region (%zu ops: %.0f%% cancel, "
+                    "%.0f%% add, %.0f%% reduce)%s\n",
+                    stats.measured, stats.n_cancel / m * 100.0,
+                    (stats.n_add_passive + stats.n_add_aggressive) / m * 100.0,
+                    stats.n_reduce / m * 100.0,
+                    stats.counters.scale > 1.001 ? " [multiplexed, scaled]" : "");
+        obbench::report_counters(a.engine.c_str(), stats.counters,
+                                 stats.measured);
+    }
 
     if (!a.out.empty()) {
         std::FILE* f = std::fopen(a.out.c_str(), "w");

@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "counters.hpp"
 #include "ob/events.hpp"
 #include "ob/types.hpp"
 
@@ -193,6 +194,17 @@ struct Samples {
 struct RunStats {
     std::size_t executed{0};
     std::size_t trades{0};
+
+    // Operation composition of the *measured* region (post warm-up), so
+    // whole-region counter totals can be read per operation.
+    std::size_t measured{0};
+    std::size_t n_cancel{0};
+    std::size_t n_add_passive{0};
+    std::size_t n_add_aggressive{0};
+    std::size_t n_reduce{0};
+
+    CounterSet counters{};
+    bool counted{false};
 };
 
 std::string describe(const FlowConfig& cfg);
@@ -215,7 +227,8 @@ inline std::uint64_t geometric(std::mt19937_64& g, std::uint64_t stop_percent,
 // but not recorded. The engine call is the only code between the timestamps.
 template <typename Book>
 RunStats run_flow(Book& book, const FlowConfig& cfg, std::size_t orders,
-                  std::size_t warmup, Samples& out) {
+                  std::size_t warmup, Samples& out,
+                  PerfCounters* counters = nullptr) {
     using detail::geometric;
     using detail::rnd;
 
@@ -257,6 +270,11 @@ RunStats run_flow(Book& book, const FlowConfig& cfg, std::size_t orders,
     const std::size_t max_live = cfg.capacity * 3 / 4;
 
     for (std::size_t i = 0; i < orders; ++i) {
+        // Counters bracket the measured region only: warm-up runs outside
+        // them, exactly as the discarded latency samples do.
+        if (counters && i == warmup) {
+            counters->start();
+        }
         const std::uint64_t roll = rnd(rng, 1000);
         enum class Kind : std::uint8_t { Cancel, Reduce, Add } kind;
         if (live.size() < min_live) {
@@ -283,6 +301,7 @@ RunStats run_flow(Book& book, const FlowConfig& cfg, std::size_t orders,
             if (i >= warmup) {
                 out.cancel.push_back(
                     static_cast<std::uint32_t>(t1 - t0));
+                ++stats.n_cancel;
             }
         } else if (kind == Kind::Reduce) {
             const auto target = live.pick(rng());
@@ -294,6 +313,7 @@ RunStats run_flow(Book& book, const FlowConfig& cfg, std::size_t orders,
                 if (i >= warmup) {
                     out.cancel.push_back(
                         static_cast<std::uint32_t>(t1 - t0));
+                    ++stats.n_cancel;
                 }
             } else {
                 const ob::Quantity new_qty = 1 + rnd(rng, target.qty - 1);
@@ -303,6 +323,7 @@ RunStats run_flow(Book& book, const FlowConfig& cfg, std::size_t orders,
                 if (i >= warmup) {
                     out.reduce.push_back(
                         static_cast<std::uint32_t>(t1 - t0));
+                    ++stats.n_reduce;
                 }
             }
         } else {
@@ -347,12 +368,19 @@ RunStats run_flow(Book& book, const FlowConfig& cfg, std::size_t orders,
             if (i >= warmup) {
                 (traded ? out.add_aggressive : out.add_passive)
                     .push_back(static_cast<std::uint32_t>(t1 - t0));
+                ++(traded ? stats.n_add_aggressive : stats.n_add_passive);
             }
         }
 
         live.on_events(book.sink().buf);
         ++stats.executed;
     }
+    if (counters) {
+        stats.counters = counters->stop();
+        stats.counted = counters->available();
+    }
+    stats.measured = stats.n_cancel + stats.n_add_passive +
+                     stats.n_add_aggressive + stats.n_reduce;
     return stats;
 }
 
