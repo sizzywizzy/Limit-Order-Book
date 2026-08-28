@@ -36,19 +36,27 @@
 
 namespace ob {
 
-// Pool slot: an order plus its intrusive links. 48 bytes, so a 64-byte cache
-// line holds a slot and the head of the next — matching walks a FIFO whose
-// slots were pool-allocated, which under steady-state churn keeps them dense.
+// Pool slot: an order plus its intrusive links, in exactly 32 bytes — two to
+// a 64-byte cache line, and a FIFO walk never straddles a line for a single
+// order.
+//
+// There is deliberately no `price` field: a resting order's price is
+// base + tick by construction, so storing it too would be eight bytes of
+// duplicated state that could drift from `tick` and would push the slot to 40
+// bytes (1.6 per line). `price_of()` recomputes it in one add. See RESULTS.md,
+// optimisation history #1.
 struct FastOrder {
     OrderId id{0};
-    Price price{0};
     Quantity qty{0};              // remaining
     std::uint32_t prev{npos32};   // intrusive FIFO links (slot indices);
     std::uint32_t next{npos32};   // `next` doubles as the pool free list
-    std::uint32_t tick{0};        // level index — price minus base, cached
+    std::uint32_t tick{0};        // level index — the price, as an offset
     Side side{Side::Buy};
     std::uint8_t pad_[3]{};
 };
+
+// The packing is a load-bearing claim, so it is checked rather than commented.
+static_assert(sizeof(FastOrder) == 32, "FastOrder must stay two per cache line");
 
 template <EventSink Sink = NullSink>
 class FastBook {
@@ -129,7 +137,7 @@ public:
             return;
         }
         const FastOrder& o = pool_[i];
-        sink_(Event::cancelled(id, o.side, o.price, o.qty));
+        sink_(Event::cancelled(id, o.side, price_of(o), o.qty));
         remove_resting(i);
     }
 
@@ -144,20 +152,21 @@ public:
             return;
         }
         FastOrder& o = pool_[i];
+        const Price resting_price = price_of(o);
         if (new_qty == 0) {
-            sink_(Event::cancelled(id, o.side, o.price, o.qty));
+            sink_(Event::cancelled(id, o.side, resting_price, o.qty));
             remove_resting(i);
             return;
         }
-        if (new_price == o.price && new_qty <= o.qty) {
+        if (new_price == resting_price && new_qty <= o.qty) {
             const Quantity delta = o.qty - new_qty;
             o.qty = new_qty;
             levels_of(o.side)[o.tick].agg -= delta;
-            sink_(Event::reduced(id, o.side, o.price, new_qty));
+            sink_(Event::reduced(id, o.side, resting_price, new_qty));
             return;
         }
         const Side side = o.side;
-        sink_(Event::cancelled(id, side, o.price, o.qty));
+        sink_(Event::cancelled(id, side, resting_price, o.qty));
         remove_resting(i);
         submit(id, side, OrderType::Limit, new_price, new_qty);
     }
@@ -250,8 +259,7 @@ public:
                     if (o.prev != prev) {
                         return "FIFO back-link mismatch";
                     }
-                    if (o.side != side || o.tick != t ||
-                        o.price != base_ + static_cast<Price>(t)) {
+                    if (o.side != side || o.tick != t) {
                         return "order filed under the wrong level";
                     }
                     if (o.qty == 0) {
@@ -303,6 +311,10 @@ private:
     [[nodiscard]] std::uint32_t tick_of(Price p) const noexcept {
         assert(in_band(p));
         return static_cast<std::uint32_t>(p - base_);
+    }
+    // A resting order's price, recomputed rather than stored (see FastOrder).
+    [[nodiscard]] Price price_of(const FastOrder& o) const noexcept {
+        return base_ + static_cast<Price>(o.tick);
     }
     [[nodiscard]] static std::size_t side_ix(Side s) noexcept {
         return static_cast<std::size_t>(s);
@@ -388,7 +400,6 @@ private:
         assert(i != npos32);
         FastOrder& o = pool_[i];
         o.id = id;
-        o.price = price;
         o.qty = qty;
         o.tick = tick_of(price);
         o.side = side;
