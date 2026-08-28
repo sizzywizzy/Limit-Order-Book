@@ -5,7 +5,7 @@ project(orderbook
         DESCRIPTION "Price-time priority limit order book and matching engine"
         LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -71,7 +71,12 @@ endif()
 add_library(ob INTERFACE)
 add_library(ob::ob ALIAS ob)
 target_include_directories(ob INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_compile_features(ob INTERFACE cxx_std_17)
+target_compile_features(ob INTERFACE cxx_std_23)
+
+# Tiny showcase: one European option series, a handful of orders, the event
+# stream and a level-2 snapshot on stdout.
+add_executable(ob_demo src/demo.cpp)
+target_link_libraries(ob_demo PRIVATE ob ob_flags)
 
 if(OB_BUILD_TESTS)
     enable_testing()
