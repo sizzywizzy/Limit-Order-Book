@@ -19,9 +19,9 @@ include(Catch)
 # One executable per test layer, so a failure names its layer and so the slow
 # layers can be run on their own. See README.md, "Testing".
 #
-#   ob_test_basic        unit tests            — phase 1
-#   ob_test_properties   randomised invariants — phase 1
-#   ob_test_differential naive vs fast         — phase 2
+#   ob_test_basic        unit tests + component tests
+#   ob_test_properties   randomised invariants, replay, zero-alloc proof
+#   ob_test_differential naive vs fast, identical event streams
 set(OB_TEST_TARGETS
     basic
     properties
@@ -33,3 +33,12 @@ foreach(layer IN LISTS OB_TEST_TARGETS)
         PRIVATE ob ob_flags Catch2::Catch2WithMain)
     catch_discover_tests(ob_test_${layer})
 endforeach()
+
+# The same harness and scenarios with no framework dependency at all — for
+# environments without CMake or Catch2 (it builds with a bare compiler:
+# g++ -std=c++23 -O2 -I include tests/standalone_runner.cpp). Registered in
+# CTest so it cannot bitrot; arguments scale it up to the full definition-of-
+# done run (see the file header).
+add_executable(ob_test_standalone standalone_runner.cpp)
+target_link_libraries(ob_test_standalone PRIVATE ob ob_flags)
+add_test(NAME standalone_runner COMMAND ob_test_standalone 200 200 60000)
