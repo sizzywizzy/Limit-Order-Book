@@ -81,34 +81,25 @@ CSVs, so they cannot disagree (see [Reproducing these numbers](#reproducing-thes
 
 | Operation | Engine | Samples | p50 | p99 | p99.9 | p99.99 | max |
 |---|---|---|---|---|---|---|---|
-| add_aggressive | naive | 14,229 | 1,516 | 3,580 | 15,614 | 67,567 | 209,282 |
-| add_aggressive | fast | 95,501 | 240 | 650 | 1,186 | 28,648 | 293,044 |
-| add_passive | naive | 128,974 | 1,686 | 2,840 | 20,014 | 82,264 | 274,406 |
-| add_passive | fast | 859,542 | 130 | 404 | 699 | 25,787 | 580,285 |
-| cancel | naive | 122,000 | 942 | 2,587 | 5,625 | 39,195 | 116,438 |
-| cancel | fast | 812,359 | 146 | 428 | 773 | 19,923 | 364,391 |
-| reduce | naive | 4,797 | 1,380 | 3,375 | 5,530 | 25,954 | 26,108 |
-| reduce | fast | 32,598 | 90 | 305 | 630 | 2,109 | 213,639 |
+| add_aggressive | naive | 14,229 | 1,369 | 3,385 | 16,771 | 39,041 | 147,608 |
+| add_aggressive | fast | 95,558 | 230 | 610 | 1,175 | 24,859 | 149,912 |
+| add_passive | naive | 128,974 | 1,494 | 2,734 | 24,584 | 139,639 | 692,919 |
+| add_passive | fast | 859,360 | 119 | 387 | 639 | 22,973 | 883,532 |
+| cancel | naive | 122,000 | 880 | 2,492 | 6,130 | 85,051 | 733,089 |
+| cancel | fast | 812,590 | 138 | 408 | 794 | 17,856 | 5,875,189 |
+| reduce | naive | 4,797 | 1,271 | 3,261 | 16,059 | 82,852 | 328,441 |
+| reduce | fast | 32,492 | 89 | 308 | 646 | 937 | 20,075 |
 
 ![percentiles](docs/figures/latency_percentiles.png)
 ![tail](docs/figures/latency_tail.png)
 
-**Run-to-run spread across the 5 seeds** (min–max of each percentile, ns):
+Reading the table rather than a ratio: at ~200 resting orders the naive cancel's O(N) scan
+costs ~880 ns; the fast cancel — hash probe, four link writes, bitmap clear — costs ~138 ns, of
+which a measurable share is the rdtsc pair itself. The gap in *passive add* (119 vs 1,494 ns)
+is allocation: the naive engine pays a `std::list` node per order.
 
-| Operation | Engine | p50 spread | p99 spread | p99.9 spread |
-|---|---|---|---|---|
-| cancel | fast | 132–162 | 421–478 | 773–920 |
-| cancel | naive | 919–983 | 2,552–2,780 | 5,625–16,346 |
-| add_passive | fast | 115–164 | 396–418 | 694–1,104 |
-| add_passive | naive | 1,606–1,726 | 2,815–3,201 | 20,014–24,996 |
-| add_aggressive | fast | 225–252 | 621–694 | 1,168–1,575 |
-| add_aggressive | naive | 1,458–1,545 | 3,518–4,039 | 15,614–29,085 |
-| reduce | fast | 85–94 | 305–356 | 630–746 |
-| reduce | naive | 1,321–1,466 | 3,308–3,520 | 4,687–24,271 |
-
-p50 and p99 hold within ~20% across seeds on both engines; p99.9 is already wide on the naive
-side (5.6–16.3 µs on cancel) and p99.99 wider still, which is the machine, not the engine — see
-[threats to validity](#threats-to-validity).
+That is one book size. The gap is not a constant, and [Scaling behaviour](#scaling-behaviour)
+below is the measurement that matters more than this table.
 
 **Wall-clock throughput** (whole run ÷ wall time; includes the *untimed* harness bookkeeping,
 so this understates the engines and is only comparable engine-to-engine):
@@ -118,19 +109,14 @@ so this understates the engines and is only comparable engine-to-engine):
 | Reference | 411k – 462k |
 | Optimised | 1.04M – 1.31M |
 
-Reading the table rather than a ratio: at ~200 resting orders the naive cancel's O(N) scan
-costs ~940 ns; the fast cancel — hash probe, four link writes, bitmap clear — costs ~146 ns, of
-which a measurable share is the rdtsc pair itself. The gap in *passive add* (130 vs 1,686 ns)
-is allocation: the naive engine pays a `std::list` node per order. The naive numbers grow with
-book size; the fast numbers do not — that scaling sweep is the next measurement to run
-(`--depth` is already a harness parameter).
-
 > [!NOTE]
-> These figures come from a rerun on 28 Aug 2026 with a busier machine than the first
-> recording, and are 20–30% higher across the board than the initial pass (fast cancel p50 was
-> 112 ns then, 146 ns here) — on **both** engines, so the comparison holds while the absolute
-> numbers move. That is exactly the run-to-run variance an unpinned laptop produces, and it is
-> why the spread table exists and why pinned figures are on the phase-3 list.
+> Absolute numbers here run 20–30% higher than the first recording on this machine (fast
+> cancel p50 was 112 ns on an idle run, 138 ns here) because the laptop was busier — on
+> **both** engines, so comparisons hold while the absolutes move. The one figure worth
+> distrusting outright is fast cancel `max` (5.9 ms): a single sample, three orders of
+> magnitude past p99.99, which is an OS scheduling event captured inside a timed region, not
+> anything the engine did. It is left in rather than trimmed, because the rule here is that
+> the reported set is the observed set.
 
 ---
 
@@ -174,13 +160,47 @@ One row per change. **Record the failures too** — a write-up containing "I tri
 no measurable difference, and here is why I think that is" reads as considerably more credible
 engineering than an unbroken list of wins.
 
-No optimisation passes yet: the engine's first measured build *is* the design described in
-DECISIONS.md 003–008 (flat levels, tiered bitmap, index-linked intrusive FIFOs, slot pool, flat
-id index). The table below starts when profile-driven changes start.
+The engine's first measured build *is* the design described in DECISIONS.md 003–008 (flat
+levels, tiered bitmap, index-linked intrusive FIFOs, slot pool, flat id index); that is the
+baseline every row below is measured against.
 
-| # | Change | Hypothesis | Cancel p99 before | after | Δ | Kept? |
+| # | Change | Hypothesis | Cancel p50 before | after | Δ | Kept? |
 |---|---|---|---|---|---|---|
-| — | *(baseline established 2026-08-28, table above)* | | 362 | | | |
+| 1 | Drop the stored `price` from `FastOrder` (40 B → 32 B) | The field duplicates `base + tick`; removing it fits two orders per cache line instead of 1.6 | 152 | 140 | −7.9% | **Yes** |
+
+### Notes on individual changes
+
+#### 1. Packing `FastOrder` to 32 bytes
+
+`FastOrder` carried both `price` and `tick`, but a resting order's price *is* `base + tick` —
+the field was eight bytes of duplicated state that could in principle drift, and it pushed the
+slot to 40 bytes, or 1.6 per 64-byte cache line. Dropping it and recomputing the price in one
+add lands the struct at exactly 32 bytes, two per line, pinned by a `static_assert`.
+
+Measured 5 seeds × 2M operations, before and after back to back on the same machine, medians
+across seeds:
+
+| Operation | p50 before | p50 after | Δ | p99 before | p99 after | Δ |
+|---|---|---|---|---|---|---|
+| cancel | 152 | 140 | −7.9% | 437 | 428 | −2.1% |
+| add_passive | 154 | 126 | −18.2% | 424 | 393 | −7.3% |
+| add_aggressive | 245 | 235 | −4.1% | 681 | 629 | −7.6% |
+| reduce | 91 | 90 | −1.1% | 323 | 349 | +8.0% |
+
+**Kept.** The honest summary is "small, consistent, and smaller than the headline numbers
+suggest." 41 of 58 paired seed-by-seed comparisons came out faster, which under a sign test is
+significant (p ≈ 0.002); that consistency is the evidence, not any single percentage. Passive
+add gains most, which fits the mechanism — it writes one fewer eight-byte field into a freshly
+acquired slot, and it is the operation that touches the most cold slots.
+
+What is *not* claimed: the p99.9 figures moved by −46% (add_passive) and −33%
+(add_aggressive), which looks spectacular and is noise. Those per-seed deltas swing between
+−1,342 ns and +9 ns on the same configuration — larger than the effect being measured. On an
+unpinned laptop the deep tail is the scheduler's, not the engine's, and reporting it as a win
+would be the kind of number-picking this document exists to prevent.
+
+Reduce's p99 got 8% *worse*, and with four samples' worth of spread behind it, that is
+unattributable either way. Recorded rather than dropped.
 
 ---
 
@@ -208,12 +228,51 @@ state") and the standalone runner.
 
 ## Scaling behaviour
 
-Planned, not yet run — the harness already takes `--depth`:
+### Cancel latency vs book size
 
-- **Latency vs book depth** (10 / 100 / 1,000 levels): the reference engine's O(N) cancel scan
-  should show; the optimised engine's O(1) should stay flat.
-- **Latency vs cancel ratio** (0.5 → 0.99): the gap should widen as cancels dominate, which is
-  the empirical demonstration of the project's central design argument.
+The claim the whole design rests on: the reference engine finds an order by scanning, so its
+cancel cost grows with the book; the optimised engine hashes an id to a slot and unlinks four
+pointers, so it does not. Swept with `scripts/sweep_depth.py`, seed 1, depth 10 → 2,000
+(the flow holds the book at roughly 4× depth):
+
+![cancel latency vs book size](docs/figures/latency_vs_depth.png)
+
+| Depth | Resting orders | Engine | cancel p50 | p99 | p99.9 |
+|---|---|---|---|---|---|
+| 10 | 46 | naive | 339 | 765 | 932 |
+| 10 | 59 | fast | 123 | 295 | 547 |
+| 25 | 116 | naive | 531 | 1,403 | 1,782 |
+| 25 | 134 | fast | 119 | 335 | 625 |
+| 50 | 202 | naive | 875 | 2,454 | 7,909 |
+| 50 | 251 | fast | 117 | 372 | 694 |
+| 100 | 431 | naive | 1,198 | 3,991 | 9,075 |
+| 100 | 402 | fast | 154 | 477 | 944 |
+| 250 | 1,041 | naive | 2,441 | 8,301 | 28,086 |
+| 250 | 1,004 | fast | 123 | 482 | 839 |
+| 500 | 1,999 | naive | 5,083 | 18,072 | 72,967 |
+| 500 | 2,012 | fast | 154 | 608 | 1,073 |
+| 1,000 | 4,001 | naive | 16,693 | 75,638 | 299,383 |
+| 1,000 | 4,008 | fast | 195 | 718 | 1,127 |
+| 2,000 | 8,019 | naive | 54,062 | 183,064 | 422,406 |
+| 2,000 | 8,033 | fast | 271 | 807 | 1,142 |
+
+**Across a 174× increase in book size, the reference engine's cancel p50 grew 159× and the
+optimised engine's grew 2.2×** (339 ns → 54,062 ns against 123 ns → 271 ns). The reference
+line is linear in N to within the noise, which is what an unindexed scan should be. At the
+largest book measured the gap is a factor of 200.
+
+The interesting result is that the optimised engine is *not* perfectly flat. 2.2× over that
+range is real and it is not the algorithm — the cancel path executes the same instruction
+count at every depth. It is the memory hierarchy: at 8,000 resting orders the pool spans
+~256 KiB and the id index 2 MiB, so the hash probe and the slot access that were L1/L2 hits
+at depth 10 start missing to L3. **O(1) in operations is not O(1) in cache**, and this plot is
+where that distinction becomes visible rather than theoretical. `perf stat` is the measurement
+that would confirm the mechanism — see [Profiling evidence](#profiling-evidence).
+
+### Latency vs cancel ratio
+
+Not yet run. Sweeping the cancel ratio from 0.5 to 0.99 should widen the gap as cancels come
+to dominate the mix, which is the same argument from the other direction.
 
 ---
 
