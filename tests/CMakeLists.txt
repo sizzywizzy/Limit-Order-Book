@@ -31,7 +31,13 @@ foreach(layer IN LISTS OB_TEST_TARGETS)
     add_executable(ob_test_${layer} test_${layer}.cpp)
     target_link_libraries(ob_test_${layer}
         PRIVATE ob ob_flags Catch2::Catch2WithMain)
-    catch_discover_tests(ob_test_${layer})
+    # --allow-running-no-tests: a Catch2 run that records no assertions exits
+    # 4, and a test that SKIPs records none. The zero-allocation test skips
+    # under sanitizers — ASan interposes the allocator, so the counter it
+    # needs is compiled out — which made the whole sanitizer job fail on a
+    # test that was correctly declining to run. The flag keeps SKIP reporting
+    # as skipped rather than forcing it to fake an assertion.
+    catch_discover_tests(ob_test_${layer} EXTRA_ARGS --allow-running-no-tests)
 endforeach()
 
 # The same harness and scenarios with no framework dependency at all — for
