@@ -1,0 +1,961 @@
+<title>Book &amp; Tape</title>
+<!--
+  Template for docs/dashboard.html. Do NOT edit the built page — edit this
+  file and rebuild:
+
+      python3 scripts/build_dashboard.py
+
+  Three placeholders are filled at build time, each appearing exactly once
+  below (the builder checks that, so this comment must not spell them):
+  the BENCH slot takes percentiles and tail curves from scripts/plot.py, the
+  REPLAY slot takes ops and events from `ob_bench --replay-out`, and the
+  stamp slot in the footer takes the provenance line.
+
+  No measured number is written literally in this file — every figure on the
+  page is read out of those two payloads, so the page cannot disagree with
+  RESULTS.md after a rerun.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* ---------- tokens: complete light palette on bare :root ---------- */
+  :root {
+    color-scheme: light;
+    --bg:        #f3f5f8;
+    --panel:     #fdfdfe;
+    --panel-2:   #eef1f5;
+    --ink:       #161b24;
+    --ink-2:     #4c5563;
+    --muted:     #7d8694;
+    --hairline:  #dde2e9;
+    --grid:      #e7eaef;
+    --ring:      rgba(22, 27, 36, 0.10);
+
+    --fast:      #2a72d8;   /* engine series — CVD-validated pair, light */
+    --naive:     #c07c10;
+    --bid:       #0e8f6b;   /* ladder series — CVD-validated pair, light */
+    --ask:       #d4472f;
+    --bid-tint:  rgba(14, 143, 107, 0.13);
+    --ask-tint:  rgba(212, 71, 47, 0.13);
+    --bid-text:  #0a7156;
+    --ask-text:  #b23a26;
+    --good:      #0b7a0b;   /* status only: verification checks */
+    --flash:     rgba(42, 114, 216, 0.22);
+
+    --font-display: "Schibsted Grotesk", "Segoe UI", system-ui, sans-serif;
+    --font-body:    "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono:    "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg:        #0f1216;
+      --panel:     #171b21;
+      --panel-2:   #1e242c;
+      --ink:       #e8ebef;
+      --ink-2:     #aab3bf;
+      --muted:     #79828f;
+      --hairline:  #272d36;
+      --grid:      #222831;
+      --ring:      rgba(232, 235, 239, 0.10);
+      --fast:      #5b93ef;   /* validated pair, dark */
+      --naive:     #bc7e16;
+      --bid:       #18a176;   /* validated pair, dark */
+      --ask:       #e25640;
+      --bid-tint:  rgba(24, 161, 118, 0.16);
+      --ask-tint:  rgba(226, 86, 64, 0.16);
+      --bid-text:  #34c493;
+      --ask-text:  #f07a66;
+      --good:      #2fae2f;
+      --flash:     rgba(91, 147, 239, 0.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg:        #0f1216;
+    --panel:     #171b21;
+    --panel-2:   #1e242c;
+    --ink:       #e8ebef;
+    --ink-2:     #aab3bf;
+    --muted:     #79828f;
+    --hairline:  #272d36;
+    --grid:      #222831;
+    --ring:      rgba(232, 235, 239, 0.10);
+    --fast:      #5b93ef;
+    --naive:     #bc7e16;
+    --bid:       #18a176;
+    --ask:       #e25640;
+    --bid-tint:  rgba(24, 161, 118, 0.16);
+    --ask-tint:  rgba(226, 86, 64, 0.16);
+    --bid-text:  #34c493;
+    --ask-text:  #f07a66;
+    --good:      #2fae2f;
+    --flash:     rgba(91, 147, 239, 0.25);
+  }
+
+  /* ---------- base ---------- */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 72px; }
+  a { color: var(--fast); }
+  button {
+    font: inherit; color: inherit; background: none; border: none;
+    cursor: pointer; padding: 0;
+  }
+  :focus-visible { outline: 2px solid var(--fast); outline-offset: 2px; border-radius: 4px; }
+
+  h1, h2 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+  .section { margin-top: 56px; }
+  .section > h2 { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
+  .section-sub { color: var(--ink-2); margin: 6px 0 20px; max-width: 68ch; }
+  .kicker {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead { padding: 44px 0 0; display: flex; flex-direction: column; gap: 14px; }
+  .masthead-top { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .masthead h1 { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; }
+  .masthead .tape-dot {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    background: var(--bid); margin-right: 2px;
+  }
+  .masthead .tape-dot + .tape-dot { background: var(--ask); margin-right: 10px; }
+  .thesis { color: var(--ink-2); max-width: 74ch; margin: 0; }
+  .thesis strong { color: var(--ink); }
+
+  /* ---------- stat band ---------- */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 30px; }
+  @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat { padding: 18px 20px 16px; display: flex; flex-direction: column; gap: 4px; }
+  .stat .label {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .stat .value { font-size: 32px; font-weight: 600; line-height: 1.1; letter-spacing: -0.01em; }
+  .stat .value .unit { font-size: 17px; font-weight: 500; color: var(--ink-2); margin-left: 2px; }
+  .stat .note { font-size: 13px; color: var(--ink-2); }
+  .stat .note .naive-ref { color: var(--naive); font-weight: 600; }
+
+  /* ---------- replay ---------- */
+  .replay { margin-top: 18px; overflow: hidden; }
+  .replay-head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 12px 16px; border-bottom: 1px solid var(--hairline);
+  }
+  .replay-head .title { font-weight: 600; font-size: 14px; margin-right: auto; }
+  .rbtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 34px; height: 30px; padding: 0 10px; border-radius: 7px;
+    border: 1px solid var(--hairline); background: var(--panel);
+    font-family: var(--font-mono); font-size: 12.5px; color: var(--ink);
+  }
+  .rbtn:hover { background: var(--panel-2); }
+  .rbtn[aria-pressed="true"] { background: var(--fast); border-color: var(--fast); color: #fff; }
+  .scrub-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px 2px; }
+  .scrub-row input[type="range"] { flex: 1; accent-color: var(--fast); height: 22px; }
+  .op-counter { font-family: var(--font-mono); font-size: 12px; color: var(--muted); min-width: 12ch; text-align: right; }
+
+  .replay-body { display: grid; grid-template-columns: minmax(0, 1fr) 360px; }
+  @media (max-width: 940px) { .replay-body { grid-template-columns: 1fr; } }
+
+  .ladder { padding: 12px 16px 16px; }
+  .ladder-cols {
+    display: grid; grid-template-columns: 7ch 1fr 8ch 5ch; gap: 0 10px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+    letter-spacing: 0.08em; text-transform: uppercase; padding: 0 8px 6px;
+  }
+  .lrow {
+    position: relative; display: grid; grid-template-columns: 7ch 1fr 8ch 5ch;
+    gap: 0 10px; align-items: center; height: 25px; padding: 0 8px;
+    font-family: var(--font-mono); font-size: 13px; border-radius: 5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .lrow .bar {
+    position: absolute; top: 3px; bottom: 3px; right: 0; border-radius: 3px;
+    pointer-events: none;
+  }
+  .lrow.askrow .bar { background: var(--ask-tint); }
+  .lrow.bidrow .bar { background: var(--bid-tint); }
+  .lrow .px { position: relative; font-weight: 600; }
+  .lrow.askrow .px { color: var(--ask-text); }
+  .lrow.bidrow .px { color: var(--bid-text); }
+  .lrow .qty, .lrow .cnt { position: relative; text-align: right; color: var(--ink-2); }
+  .lrow .qty { color: var(--ink); }
+  .lrow.emptyrow { color: var(--muted); }
+  .lrow.emptyrow .px { color: var(--muted); font-weight: 400; }
+  @keyframes rowflash { 0% { background: var(--flash); } 100% { background: transparent; } }
+  .lrow.flash { animation: rowflash 700ms ease-out; }
+  @media (prefers-reduced-motion: reduce) { .lrow.flash { animation: none; } }
+
+  .spread-row {
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+    height: 34px; margin: 3px 0;
+    border-block: 1px solid var(--hairline);
+    font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-2);
+  }
+  .spread-row .last { font-weight: 600; color: var(--ink); }
+  .spread-row .last.buy { color: var(--bid-text); }
+  .spread-row .last.sell { color: var(--ask-text); }
+
+  .tape {
+    border-left: 1px solid var(--hairline); display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  @media (max-width: 940px) { .tape { border-left: none; border-top: 1px solid var(--hairline); } }
+  .wire {
+    padding: 10px 16px; border-bottom: 1px solid var(--hairline);
+    font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-2);
+    min-height: 40px; display: flex; align-items: center; gap: 8px;
+  }
+  .wire .k { color: var(--muted); font-size: 11px; letter-spacing: 0.1em; }
+  .tape ol {
+    list-style: none; margin: 0; padding: 8px 10px; overflow: hidden;
+    display: flex; flex-direction: column; gap: 2px; flex: 1;
+  }
+  .tev {
+    display: flex; align-items: center; gap: 8px; padding: 3px 6px;
+    font-family: var(--font-mono); font-size: 12.5px; border-radius: 5px;
+    font-variant-numeric: tabular-nums; color: var(--ink-2);
+  }
+  .tev:first-child { background: var(--panel-2); color: var(--ink); }
+  .tev .chip {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; width: 4ch;
+    text-align: center; padding: 1.5px 0; border-radius: 4px;
+    border: 1px solid var(--hairline); color: var(--ink-2); flex: none;
+  }
+  .tev.trd .chip { border-color: var(--fast); color: var(--fast); }
+  .tev.rej .chip { border-color: var(--ask); color: var(--ask-text); }
+  .tev .sdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .tev .sdot.b { background: var(--bid); }
+  .tev .sdot.s { background: var(--ask); }
+  .tape-stats {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px;
+    background: var(--hairline); border-top: 1px solid var(--hairline);
+  }
+  .tstat { background: var(--panel); padding: 10px 14px; }
+  .tstat .k { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .tstat .v { font-family: var(--font-mono); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tstat .v.bidc { color: var(--bid-text); }
+  .tstat .v.askc { color: var(--ask-text); }
+  .replay-caption { padding: 10px 16px 14px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--hairline); }
+
+  /* ---------- charts ---------- */
+  .legend { display: flex; gap: 18px; align-items: center; font-size: 13px; color: var(--ink-2); margin: 0 0 10px; flex-wrap: wrap; }
+  .legend .sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: 0; }
+  .sw.fast { background: var(--fast); } .sw.naive { background: var(--naive); }
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
+  .chart-card { padding: 16px 18px 10px; }
+  .chart-card h3 { margin: 0 0 2px; font-size: 14px; font-weight: 600; font-family: var(--font-body); }
+  .chart-card .sub { font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
+  .chart-card svg { display: block; width: 100%; height: auto; overflow: visible; }
+  svg text { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); }
+  svg .rowlab { font-family: var(--font-body); font-size: 12px; fill: var(--ink-2); }
+  svg .vlab { font-size: 10.5px; fill: var(--ink-2); font-variant-numeric: tabular-nums; }
+  svg .serieslab { font-family: var(--font-body); font-size: 11px; font-weight: 600; }
+  svg .serieslab.f { fill: var(--fast); } svg .serieslab.n { fill: var(--naive); }
+  svg .gridline { stroke: var(--grid); stroke-width: 1; }
+  svg .axisline { stroke: var(--hairline); stroke-width: 1; }
+  svg .connector { stroke: var(--hairline); stroke-width: 2; }
+  svg .dot-fast { fill: var(--fast); } svg .dot-naive { fill: var(--naive); }
+  svg .line-fast { stroke: var(--fast); stroke-width: 2; fill: none; }
+  svg .line-naive { stroke: var(--naive); stroke-width: 2; fill: none; }
+  svg .hit { fill: transparent; }
+  svg .xhair { stroke: var(--muted); stroke-width: 1; opacity: 0; }
+
+  #tooltip {
+    position: fixed; z-index: 30; pointer-events: none; opacity: 0;
+    background: var(--panel); border: 1px solid var(--hairline); border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.12); padding: 8px 11px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--ink);
+    max-width: 280px; transition: opacity 80ms linear;
+  }
+  #tooltip .t { color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+  #tooltip .r { display: flex; justify-content: space-between; gap: 14px; }
+  #tooltip .r .n { color: var(--ink-2); }
+
+  details.tablev { margin-top: 14px; }
+  details.tablev summary { cursor: pointer; color: var(--ink-2); font-size: 13.5px; width: max-content; }
+  details.tablev summary:hover { color: var(--ink); }
+  .ptable { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+  .ptable-scroll { overflow-x: auto; }
+  .ptable th, .ptable td {
+    text-align: right; padding: 7px 12px; border-bottom: 1px solid var(--hairline);
+    font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 12.5px;
+  }
+  .ptable th { font-family: var(--font-body); color: var(--muted); font-weight: 500; font-size: 12px; }
+  .ptable th:first-child, .ptable td:first-child { text-align: left; font-family: var(--font-body); }
+  .ptable td.eng { text-align: left; font-family: var(--font-body); font-weight: 600; }
+  .ptable td.eng.f { color: var(--fast); } .ptable td.eng.n { color: var(--naive); }
+
+  /* ---------- verification ---------- */
+  .proof-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 900px) { .proof-grid { grid-template-columns: 1fr; } }
+  .proof { padding: 16px 18px; display: flex; gap: 12px; align-items: flex-start; }
+  .proof .tick {
+    flex: none; width: 22px; height: 22px; border-radius: 50%;
+    display: grid; place-items: center; margin-top: 1px;
+    background: color-mix(in srgb, var(--good) 14%, transparent);
+    color: var(--good); font-size: 13px; font-weight: 700;
+  }
+  .proof b { display: block; font-size: 14px; margin-bottom: 2px; }
+  .proof p { margin: 0; font-size: 13px; color: var(--ink-2); }
+
+  /* ---------- anatomy ---------- */
+  .anatomy { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+  @media (max-width: 1000px) { .anatomy { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 620px) { .anatomy { grid-template-columns: 1fr; } }
+  .organ { padding: 15px 16px; }
+  .organ .o { font-family: var(--font-mono); font-size: 11px; color: var(--fast); font-weight: 600; }
+  .organ b { display: block; font-size: 13.5px; margin: 2px 0 4px; }
+  .organ p { margin: 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+
+  /* ---------- footer ---------- */
+  .colophon {
+    margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--hairline);
+    font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; max-width: 86ch;
+  }
+  .colophon code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+  .colophon .stamp { font-family: var(--font-mono); font-size: 11.5px; }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <span class="kicker">orderbook · fastbook engine telemetry</span>
+    <div class="masthead-top">
+      <h1><span class="tape-dot"></span><span class="tape-dot"></span>Book &amp; Tape</h1>
+    </div>
+    <p class="thesis">
+      A price-time priority matching engine for one European option series, C++23, with a
+      <strong>zero-allocation hot path</strong> — flat price-level arrays, a three-tier occupancy
+      bitmap, intrusive index-linked FIFOs, a pre-allocated order pool. No maps, no heaps, no
+      searches on the cancel path. Below: a recorded run replayed from the engine's own event
+      stream, and the measured nanoseconds behind it.
+    </p>
+  </header>
+
+  <div class="stats" id="stat-band"></div>
+
+  <section class="section" id="replay-section">
+    <h2>The book, replayed</h2>
+    <p class="section-sub" id="replay-sub"></p>
+
+    <div class="replay panel">
+      <div class="replay-head">
+        <span class="title">Depth ladder &amp; event tape</span>
+        <button class="rbtn" id="btn-restart" aria-label="Restart replay">⟲</button>
+        <button class="rbtn" id="btn-back" aria-label="Step back one operation">−1</button>
+        <button class="rbtn" id="btn-play" aria-pressed="false" aria-label="Play or pause replay">▶ Play</button>
+        <button class="rbtn" id="btn-fwd" aria-label="Step forward one operation">+1</button>
+        <button class="rbtn" id="btn-speed" aria-label="Cycle replay speed">×4</button>
+      </div>
+      <div class="scrub-row">
+        <input type="range" id="scrub" min="0" max="100" value="0" step="1" aria-label="Scrub to operation">
+        <span class="op-counter" id="op-counter">op 0</span>
+      </div>
+      <div class="replay-body">
+        <div class="ladder">
+          <div class="ladder-cols"><span>price</span><span></span><span>qty</span><span>ord</span></div>
+          <div id="asks"></div>
+          <div class="spread-row" id="spread-row">
+            <span>spread <span id="spread-v">—</span></span>
+            <span class="last" id="last-trade">no trades yet</span>
+          </div>
+          <div id="bids"></div>
+        </div>
+        <div class="tape">
+          <div class="wire"><span class="k">WIRE</span><span id="wire-op">—</span></div>
+          <ol id="tape-list" aria-label="Event tape, newest first"></ol>
+          <div class="tape-stats">
+            <div class="tstat"><div class="k">best bid</div><div class="v bidc" id="st-bid">—</div></div>
+            <div class="tstat"><div class="k">best ask</div><div class="v askc" id="st-ask">—</div></div>
+            <div class="tstat"><div class="k">resting</div><div class="v" id="st-rest">0</div></div>
+            <div class="tstat"><div class="k">trades</div><div class="v" id="st-trades">0</div></div>
+            <div class="tstat"><div class="k">volume</div><div class="v" id="st-vol">0</div></div>
+            <div class="tstat"><div class="k">events</div><div class="v" id="st-ev">0</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="replay-caption" id="replay-caption"></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Latency, measured</h2>
+    <p class="section-sub" id="latency-sub"></p>
+
+    <div class="legend">
+      <span><span class="sw fast"></span>FastBook — flat arrays, bitmap, pool</span>
+      <span><span class="sw naive"></span>NaiveBook — sorted vectors + lists, the oracle</span>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card panel">
+        <h3>Typical cost — p50</h3>
+        <p class="sub">nanoseconds per operation, log scale</p>
+        <div id="dumbbell-p50"></div>
+      </div>
+      <div class="chart-card panel">
+        <h3>Bad-case cost — p99</h3>
+        <p class="sub">nanoseconds per operation, log scale</p>
+        <div id="dumbbell-p99"></div>
+      </div>
+    </div>
+
+    <div class="chart-grid" style="margin-top:14px">
+      <div class="chart-card panel" style="grid-column: 1 / -1;">
+        <h3>The whole tail — survival curves</h3>
+        <p class="sub">P(latency &gt; x), log–log, per operation. Hover for values.</p>
+        <div class="chart-grid" id="ccdf-grid" style="gap:6px 18px"></div>
+      </div>
+    </div>
+
+    <details class="tablev">
+      <summary>View as table — all percentiles, with run-to-run spread</summary>
+      <div class="ptable-scroll"><table class="ptable" id="ptable"></table></div>
+    </details>
+  </section>
+
+  <section class="section">
+    <h2>Why the numbers are believable</h2>
+    <p class="section-sub">Every claim on this page is enforced by a test that runs green, not by an assertion in prose.</p>
+    <div class="proof-grid">
+      <div class="proof panel"><span class="tick">✓</span><div>
+        <b>1,000,000-op differential</b>
+        <p>Naive and fast engines consume identical random flows; their entire event streams compare equal after every single operation.</p>
+      </div></div>
+      <div class="proof panel"><span class="tick">✓</span><div>
+        <b>10,000 × 2 property sequences</b>
+        <p>Five invariants — never crossed, conservation, id resolution, aggregate integrity, no ghost levels — checked after every op, on both engines.</p>
+      </div></div>
+      <div class="proof panel"><span class="tick">✓</span><div>
+        <b>Zero allocations, counted</b>
+        <p>A replacement global <code>operator new</code> counts every allocation: 0 across 100,000 steady-state operations.</p>
+      </div></div>
+      <div class="proof panel"><span class="tick">✓</span><div>
+        <b>Deterministic replay</b>
+        <p>Same input, fresh book, twice: value-identical event streams. It is why this page can replay a run at all.</p>
+      </div></div>
+      <div class="proof panel"><span class="tick">✓</span><div>
+        <b>86 / 86 standalone checks</b>
+        <p>Bitmap and id-index fuzzed against reference models; every order type and edge case exercised on both engines.</p>
+      </div></div>
+      <div class="proof panel"><span class="tick">✓</span><div>
+        <b>Hardened rerun</b>
+        <p>The full suite repeats clean under <code>_GLIBCXX_DEBUG</code>; CI runs it again under ASan + UBSan on Linux.</p>
+      </div></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Five structures, no maps</h2>
+    <p class="section-sub">What replaces <code>std::map</code>, <code>std::unordered_map</code>, and the heap — and why each operation has no search in it.</p>
+    <div class="anatomy">
+      <div class="organ panel"><span class="o">O(1) lookup</span><b>Flat level array</b>
+        <p>One contiguous slot per price tick. Finding a level is an add and an index — never a tree walk.</p></div>
+      <div class="organ panel"><span class="o">O(1) best price</span><b>Tiered bitmap</b>
+        <p>One bit per tick, summarised twice. Best bid/ask is three find-first-set instructions; clearing any level costs the same as the best one.</p></div>
+      <div class="organ panel"><span class="o">O(1) unlink</span><b>Intrusive FIFO</b>
+        <p>prev/next live inside the order as 32-bit slot indices. Cancel is four link writes — the queue is never searched.</p></div>
+      <div class="organ panel"><span class="o">0 alloc</span><b>Slot pool</b>
+        <p>Every order pre-allocated at construction, free list threaded through the same <code>next</code> field, pages pre-faulted.</p></div>
+      <div class="organ panel"><span class="o">O(1) id → order</span><b>Flat id index</b>
+        <p>Open addressing at ≤ 0.5 load, backward-shift deletion: probe runs stay ~1 cache line and never grow with cancel churn.</p></div>
+    </div>
+  </section>
+
+  <footer class="colophon">
+    <span><b>Methodology.</b> i7-13700H · g++ 16.2 <code>-std=c++23 -O2 -march=native -DNDEBUG</code> ·
+    Windows 11 · timer: unserialised <code>rdtsc</code> calibrated against <code>steady_clock</code> ·
+    thread unpinned, frequency scaling active — p50/p99 are stable across runs (spread in the table
+    above); treat p99.99/max as noise ceilings.</span>
+    <span><b>Workload.</b> Cancel-dominated synthetic flow: ~0.9 cancels per add, 10% of submits aggressive,
+    geometric prices around the touch. Cancel/reduce targets are always live orders — the cancel bucket
+    measures cancels, not rejections.</span>
+    <span><b>Sources.</b> Engines in <code>include/ob/</code> · proofs in <code>tests/</code> · harness in
+    <code>bench/</code> · decisions with rejected alternatives in <code>DECISIONS.md</code> ·
+    methodology in <code>RESULTS.md</code>.</span>
+    <span class="stamp">__STAMP__</span>
+  </footer>
+
+</div>
+
+<div id="tooltip" role="status"></div>
+
+<script>
+const BENCH = /*__BENCH__*/;
+const REPLAY = /*__REPLAY__*/;
+
+/* ============================== helpers ============================== */
+const $ = s => document.querySelector(s);
+const fmt = n => Number(n).toLocaleString("en-US");
+const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const OP_LABELS = {
+  cancel: "Cancel",
+  add_passive: "Add · passive",
+  add_aggressive: "Add · aggressive",
+  reduce: "Reduce in place",
+};
+/* Operations come from the data, so a new bucket in ob_bench appears here
+   without touching the template. */
+const OPS = BENCH.ops.map(op => [op, OP_LABELS[op] || op]);
+const px = (eng, op, key) => BENCH.percentiles[eng][op].median[key];
+const spread = (eng, op, key) => BENCH.percentiles[eng][op].range[key];
+
+const tooltip = $("#tooltip");
+function showTip(html, x, y) {
+  tooltip.innerHTML = html;
+  tooltip.style.opacity = "1";
+  const w = tooltip.offsetWidth, h = tooltip.offsetHeight;
+  tooltip.style.left = Math.min(x + 14, innerWidth - w - 10) + "px";
+  tooltip.style.top = (y - h - 12 < 8 ? y + 16 : y - h - 12) + "px";
+}
+function hideTip() { tooltip.style.opacity = "0"; }
+
+/* ============================== prose from data ============================== */
+{
+  const runsFast = BENCH.runs.fast.length;
+  const runsNaive = BENCH.runs.naive.length;
+  const mf = BENCH.median_run.fast, mn = BENCH.median_run.naive;
+  const runWord = runsFast === 1 ? "run" : "runs";
+  const which = mf === mn ? `seed ${mf}` : `fast seed ${mf}, naive seed ${mn}`;
+  $("#latency-sub").innerHTML =
+    `Per-operation samples from ${runsFast === runsNaive ? runsFast : runsFast + "/" + runsNaive} seeded ` +
+    `${runWord} per engine, rdtsc-timed, warm-up discarded. Shown: the median ${runWord.slice(0, 3)} by ` +
+    `cancel p50 (${which}); the table below carries the spread across all of them. Log scale — the ` +
+    `engines are far enough apart that a linear axis would flatten the fast one to a stub.`;
+
+  const nOps = REPLAY.ops.length;
+  const nEvents = REPLAY.ops.reduce((a, o) => a + o.e.length, 0);
+  $("#replay-sub").innerHTML =
+    `A real recorded session: ${fmt(nOps)} operations into <code>FastBook</code>, ${fmt(nEvents)} events out. ` +
+    `The ladder you see is rebuilt <em>purely from the event stream</em> — no depth snapshots ship with ` +
+    `the data, because the stream is complete by construction.`;
+  $("#replay-caption").innerHTML =
+    `Seed ${REPLAY.seed} · band [${REPLAY.base}, ${REPLAY.base + REPLAY.ticks}) ticks · ` +
+    `recorded by <code>ob_bench --replay-out</code> against the optimised engine. Demonstration mix ` +
+    `(more order-type variety and a few deliberate rejects than the latency workload, so the tape shows ` +
+    `every event kind); every row is engine output, not simulation.`;
+
+  const card = (label, value, unit, note) =>
+    `<div class="stat panel"><span class="label">${label}</span>` +
+    `<span class="value">${value}${unit ? `<span class="unit">${unit}</span>` : ""}</span>` +
+    `<span class="note">${note}</span></div>`;
+  $("#stat-band").innerHTML =
+    card("Cancel · p50", fmt(px("fast", "cancel", "p50")), "ns",
+         `vs <span class="naive-ref">${fmt(px("naive", "cancel", "p50"))} ns</span> reference — no search in the path`) +
+    card("Passive add · p50", fmt(px("fast", "add_passive", "p50")), "ns",
+         `vs <span class="naive-ref">${fmt(px("naive", "add_passive", "p50"))} ns</span> — no allocation, ever`) +
+    card("Steady-state allocations", "0", "",
+         "counted over 100k ops by a replacement <code>operator new</code>") +
+    card("Differential proof", "1.0", "M ops",
+         "event streams identical to the reference oracle");
+}
+
+/* ============================== dumbbells ============================== */
+function logPos(v, d0, d1, r0, r1) {
+  return r0 + (Math.log10(v) - Math.log10(d0)) / (Math.log10(d1) - Math.log10(d0)) * (r1 - r0);
+}
+
+/* Domain from the data, rounded out to decade-ish bounds, so a faster engine
+   after an optimisation pass still lands inside the plot. */
+function domainFor(key) {
+  let lo = Infinity, hi = 0;
+  for (const [op] of OPS) for (const eng of ["fast", "naive"]) {
+    const v = px(eng, op, key);
+    lo = Math.min(lo, v); hi = Math.max(hi, v);
+  }
+  return [Math.pow(10, Math.floor(Math.log10(lo * 0.75))), Math.pow(10, Math.ceil(Math.log10(hi * 1.35)))];
+}
+
+function niceTicks(d0, d1) {
+  const out = [];
+  for (let e = Math.floor(Math.log10(d0)); e <= Math.ceil(Math.log10(d1)); e++) {
+    for (const m of [1, 3]) {
+      const v = m * Math.pow(10, e);
+      if (v > d0 * 1.05 && v < d1 * 0.98) out.push(v);
+    }
+  }
+  return out;
+}
+
+function dumbbellPanel(mount, key) {
+  const W = 540, L = 118, R = 34, T = 8, B = 26;
+  const H = T + 18 + OPS.length * 32 + B - 12;
+  const [d0, d1] = domainFor(key);
+  const rows = OPS.map(([op, label], i) => ({
+    op, label,
+    f: px("fast", op, key), n: px("naive", op, key),
+    y: T + 18 + i * 32,
+  }));
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${key} latency by operation, fast versus naive, log scale">`;
+  for (const t of niceTicks(d0, d1)) {
+    const x = logPos(t, d0, d1, L, W - R);
+    s += `<line class="gridline" x1="${x}" y1="${T}" x2="${x}" y2="${H - B}"/>`;
+    s += `<text x="${x}" y="${H - B + 15}" text-anchor="middle">${t >= 1000 ? (t / 1000) + "µs" : t}</text>`;
+  }
+  s += `<line class="axisline" x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}"/>`;
+  for (const r of rows) {
+    const xf = logPos(r.f, d0, d1, L, W - R);
+    const xn = logPos(r.n, d0, d1, L, W - R);
+    s += `<text class="rowlab" x="${L - 12}" y="${r.y + 4}" text-anchor="end">${r.label}</text>`;
+    s += `<line class="connector" x1="${xf}" y1="${r.y}" x2="${xn}" y2="${r.y}"/>`;
+    s += `<circle class="dot-fast" cx="${xf}" cy="${r.y}" r="5"/>`;
+    s += `<circle class="dot-naive" cx="${xn}" cy="${r.y}" r="5"/>`;
+    s += `<text class="vlab" x="${xf - 9}" y="${r.y + 4}" text-anchor="end">${fmt(r.f)}</text>`;
+    s += `<text class="vlab" x="${xn + 9}" y="${r.y + 4}" text-anchor="start">${fmt(r.n)}</text>`;
+    s += `<rect class="hit" x="${L}" y="${r.y - 14}" width="${W - R - L}" height="28" data-op="${r.op}"/>`;
+  }
+  s += "</svg>";
+  mount.innerHTML = s;
+
+  mount.querySelectorAll(".hit").forEach(hit => {
+    const r = rows.find(q => q.op === hit.dataset.op);
+    const rangeLine = eng => {
+      const sp = spread(eng, r.op, key === "p50" ? "p50" : "p99");
+      return sp ? ` · runs ${fmt(sp[0])}–${fmt(sp[1])}` : "";
+    };
+    const move = e => showTip(
+      `<div class="t">${r.label} — ${key}</div>` +
+      `<div class="r"><span class="n">fast</span><span>${fmt(r.f)} ns${rangeLine("fast")}</span></div>` +
+      `<div class="r"><span class="n">naive</span><span>${fmt(r.n)} ns${rangeLine("naive")}</span></div>`,
+      e.clientX, e.clientY);
+    hit.addEventListener("mousemove", move);
+    hit.addEventListener("mouseleave", hideTip);
+  });
+}
+
+dumbbellPanel($("#dumbbell-p50"), "p50");
+dumbbellPanel($("#dumbbell-p99"), "p99");
+
+/* ============================== CCDF small multiples ============================== */
+function ccdfPanel(host, op, label) {
+  const W = 300, H = 210, L = 44, R = 12, T = 10, B = 30;
+  const pts = { fast: BENCH.ccdf.fast[op], naive: BENCH.ccdf.naive[op] };
+  const allX = [...pts.fast, ...pts.naive].map(p => p[0]);
+  const d0 = Math.pow(10, Math.floor(Math.log10(Math.max(1, Math.min(...allX)))));
+  const d1 = Math.pow(10, Math.ceil(Math.log10(Math.max(...allX))));
+  const minP = Math.min(...[...pts.fast, ...pts.naive].map(p => p[1]));
+  const y0 = Math.pow(10, Math.floor(Math.log10(minP)));
+  const X = v => logPos(Math.max(v, d0), d0, d1, L, W - R);
+  const Y = v => logPos(Math.max(v, y0), 1, y0, T, H - B);
+
+  const card = document.createElement("div");
+  card.innerHTML = `<h3 style="margin:0 0 2px;font-size:13px;font-weight:600">${label}</h3>`;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Survival curve for ${label}: fraction of operations slower than x">`;
+  for (let e = Math.log10(d0); e <= Math.log10(d1); e++) {
+    const t = Math.pow(10, e);
+    s += `<line class="gridline" x1="${X(t)}" y1="${T}" x2="${X(t)}" y2="${H - B}"/>`;
+    const lab = t >= 1e6 ? (t / 1e6) + "ms" : t >= 1000 ? (t / 1000) + "µs" : t + "ns";
+    s += `<text x="${X(t)}" y="${H - B + 14}" text-anchor="middle">${lab}</text>`;
+  }
+  for (let e = 0; e >= Math.log10(y0); e -= 2) {
+    const t = Math.pow(10, e);
+    s += `<line class="gridline" x1="${L}" y1="${Y(t)}" x2="${W - R}" y2="${Y(t)}"/>`;
+    s += `<text x="${L - 6}" y="${Y(t) + 3.5}" text-anchor="end">${e === 0 ? "1" : "10" + String(e).replace("-", "⁻").replace(/\d/g, d => "⁰¹²³⁴⁵⁶⁷⁸⁹"[d])}</text>`;
+  }
+  s += `<line class="axisline" x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}"/>`;
+  for (const eng of ["naive", "fast"]) {
+    const d = pts[eng].map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1)).join("");
+    s += `<path class="line-${eng}" d="${d}"/>`;
+  }
+  /* Direct labels: identity is never carried by color alone. */
+  for (const [eng, cls] of [["fast", "f"], ["naive", "n"]]) {
+    const p = pts[eng][Math.floor(pts[eng].length * 0.42)];
+    s += `<text class="serieslab ${cls}" x="${X(p[0]) + (eng === "fast" ? -6 : 6)}" y="${Y(p[1]) - 6}" ` +
+         `text-anchor="${eng === "fast" ? "end" : "start"}">${eng}</text>`;
+  }
+  s += `<line class="xhair" y1="${T}" y2="${H - B}"/>`;
+  s += `<rect class="hit" x="${L}" y="${T}" width="${W - R - L}" height="${H - B - T}"/>`;
+  s += "</svg>";
+  card.insertAdjacentHTML("beforeend", s);
+  host.appendChild(card);
+
+  const svg = card.querySelector("svg");
+  const xh = card.querySelector(".xhair");
+  const hit = card.querySelector(".hit");
+  const survivalAt = (eng, ns) => {
+    const arr = pts[eng];
+    if (ns <= arr[0][0]) return arr[0][1];
+    for (let i = 1; i < arr.length; i++) if (arr[i][0] >= ns) return arr[i][1];
+    return null;
+  };
+  hit.addEventListener("mousemove", e => {
+    const box = svg.getBoundingClientRect();
+    const sx = (e.clientX - box.left) * (W / box.width);
+    const ns = Math.round(Math.pow(10,
+      Math.log10(d0) + (sx - L) / (W - R - L) * (Math.log10(d1) - Math.log10(d0))));
+    xh.setAttribute("x1", sx); xh.setAttribute("x2", sx); xh.style.opacity = "1";
+    const pct = v => v == null ? "—" : v >= 0.01 ? (v * 100).toFixed(1) + "%" : "1 in " + fmt(Math.round(1 / v));
+    showTip(
+      `<div class="t">${label} — slower than ${fmt(ns)} ns</div>` +
+      `<div class="r"><span class="n">fast</span><span>${pct(survivalAt("fast", ns))}</span></div>` +
+      `<div class="r"><span class="n">naive</span><span>${pct(survivalAt("naive", ns))}</span></div>`,
+      e.clientX, e.clientY);
+  });
+  hit.addEventListener("mouseleave", () => { xh.style.opacity = "0"; hideTip(); });
+}
+for (const [op, label] of OPS) ccdfPanel($("#ccdf-grid"), op, label);
+
+/* ============================== table view ============================== */
+{
+  const cols = ["p90", "p99", "p999", "p9999", "max"];
+  const head = ["Operation", "Engine", "p50 (run range)", "p90", "p99", "p99.9", "p99.99", "max", "samples"];
+  let h = "<thead><tr>" + head.map(c => `<th>${c}</th>`).join("") + "</tr></thead><tbody>";
+  for (const [op, label] of OPS) {
+    for (const eng of ["fast", "naive"]) {
+      const m = BENCH.percentiles[eng][op].median;
+      const sp = spread(eng, op, "p50");
+      h += `<tr><td>${eng === "fast" ? label : ""}</td><td class="eng ${eng === "fast" ? "f" : "n"}">${eng}</td>`;
+      h += `<td>${fmt(m.p50)}${sp ? ` <span style="color:var(--muted)">(${fmt(sp[0])}–${fmt(sp[1])})</span>` : ""}</td>`;
+      for (const c of cols) h += `<td>${fmt(m[c])}</td>`;
+      h += `<td>${fmt(m.n)}</td></tr>`;
+    }
+  }
+  $("#ptable").innerHTML = h + "</tbody>";
+}
+
+/* ============================== replay ============================== */
+const OTYPES = ["LIMIT", "MARKET", "IOC", "FOK"];
+const EVNAME = ["ACC", "TRD", "RED", "CXL", "REJ"];
+const REASONS = ["", "invalid id", "duplicate id", "zero qty", "price out of band", "book full", "FOK unfillable", "unknown order"];
+const DEPTH_ROWS = 11;
+
+const replay = {
+  i: 0,
+  playing: false,
+  speedIx: 1,
+  speeds: [[1, 2.5], [4, 10], [16, 40], [60, 150]],  // [label, ops/sec]
+  orders: new Map(),                 // id -> {s, p, q}
+  levels: [new Map(), new Map()],    // [bids, asks]: price -> {q, n}
+  trades: 0, volume: 0, events: 0,
+  last: null,
+  tape: [],
+};
+
+function lvl(side, p) {
+  const m = replay.levels[side];
+  let e = m.get(p);
+  if (!e) { e = { q: 0, n: 0 }; m.set(p, e); }
+  return e;
+}
+function lvlSub(side, p, q, dropOrder) {
+  const e = replay.levels[side].get(p);
+  if (!e) return;
+  e.q -= q;
+  if (dropOrder) e.n -= 1;
+  if (e.n <= 0 || e.q <= 0) replay.levels[side].delete(p);
+}
+
+/* The whole book, rebuilt from events alone — Accepted adds, Trade and
+   Reduced decrement, Cancelled removes. Nothing else is needed, which is the
+   point being demonstrated. */
+function applyEvent(ev) {
+  const [t, s, r, id, mk, p, q] = ev;
+  replay.events++;
+  if (t === 0) {
+    replay.orders.set(id, { s, p, q });
+    const e = lvl(s, p); e.q += q; e.n += 1;
+  } else if (t === 1) {
+    const m = replay.orders.get(mk);
+    if (m) {
+      m.q -= q;
+      lvlSub(m.s, m.p, q, m.q === 0);
+      if (m.q === 0) replay.orders.delete(mk);
+    }
+    replay.trades++; replay.volume += q;
+    replay.last = { p, q, side: s };
+  } else if (t === 2) {
+    const o = replay.orders.get(id);
+    if (o) { lvlSub(o.s, o.p, o.q - q, false); o.q = q; }
+  } else if (t === 3) {
+    const o = replay.orders.get(id);
+    if (o) { lvlSub(o.s, o.p, o.q, true); replay.orders.delete(id); }
+  }
+  replay.tape.push(ev);
+  if (replay.tape.length > 18) replay.tape.shift();
+}
+
+function resetReplay() {
+  replay.i = 0;
+  replay.orders.clear();
+  replay.levels[0].clear(); replay.levels[1].clear();
+  replay.trades = 0; replay.volume = 0; replay.events = 0;
+  replay.last = null; replay.tape.length = 0;
+}
+
+function seekTo(n) {
+  if (n < replay.i) resetReplay();
+  const touched = new Set();
+  while (replay.i < n) {
+    for (const ev of REPLAY.ops[replay.i].e) {
+      applyEvent(ev);
+      if (ev[0] <= 3) touched.add(ev[5]);
+    }
+    replay.i++;
+  }
+  render(touched);
+}
+
+function makeRows(host, cls) {
+  const rows = [];
+  for (let i = 0; i < DEPTH_ROWS; i++) {
+    const d = document.createElement("div");
+    d.className = "lrow " + cls;
+    d.innerHTML = `<span class="px"></span><span></span><span class="qty"></span><span class="cnt"></span><span class="bar"></span>`;
+    host.appendChild(d);
+    rows.push(d);
+  }
+  return rows;
+}
+const askRows = makeRows($("#asks"), "askrow");
+const bidRows = makeRows($("#bids"), "bidrow");
+
+function sortedSide(side) {
+  const arr = [...replay.levels[side].entries()];
+  arr.sort((a, b) => side === 0 ? b[0] - a[0] : a[0] - b[0]);   // best first
+  return arr.slice(0, DEPTH_ROWS);
+}
+
+function render(touched) {
+  const bids = sortedSide(0), asks = sortedSide(1);
+  const maxQ = Math.max(1, ...bids.map(x => x[1].q), ...asks.map(x => x[1].q));
+
+  /* Asks run worst→best down the column so the best ask sits against the
+     spread row, the way a ladder is read. */
+  for (let i = 0; i < DEPTH_ROWS; i++) fillRow(askRows[i], asks[DEPTH_ROWS - 1 - i], maxQ, touched);
+  for (let i = 0; i < DEPTH_ROWS; i++) fillRow(bidRows[i], bids[i], maxQ, touched);
+
+  const bb = bids.length ? bids[0][0] : null;
+  const ba = asks.length ? asks[0][0] : null;
+  $("#st-bid").textContent = bb ?? "—";
+  $("#st-ask").textContent = ba ?? "—";
+  $("#st-rest").textContent = fmt(replay.orders.size);
+  $("#st-trades").textContent = fmt(replay.trades);
+  $("#st-vol").textContent = fmt(replay.volume);
+  $("#st-ev").textContent = fmt(replay.events);
+  $("#spread-v").textContent = bb != null && ba != null ? ba - bb : "—";
+
+  const lt = $("#last-trade");
+  if (replay.last) {
+    lt.textContent = `last ${replay.last.q} @ ${replay.last.p} ${replay.last.side === 0 ? "▲" : "▼"}`;
+    lt.className = "last " + (replay.last.side === 0 ? "buy" : "sell");
+  } else {
+    lt.textContent = "no trades yet";
+    lt.className = "last";
+  }
+
+  $("#wire-op").textContent = replay.i > 0 ? wireText(REPLAY.ops[replay.i - 1]) : "—";
+  $("#tape-list").innerHTML = [...replay.tape].reverse().map(tapeItem).join("");
+  $("#op-counter").textContent = `op ${fmt(replay.i)} / ${fmt(REPLAY.ops.length)}`;
+  const sc = $("#scrub");
+  if (+sc.value !== replay.i) sc.value = replay.i;
+}
+
+function fillRow(row, entry, maxQ, touched) {
+  const px_ = row.children[0], qty = row.children[2], cnt = row.children[3], bar = row.children[4];
+  if (!entry) {
+    row.classList.add("emptyrow");
+    px_.textContent = "·"; qty.textContent = ""; cnt.textContent = ""; bar.style.width = "0";
+    return;
+  }
+  row.classList.remove("emptyrow");
+  const [p, e] = entry;
+  px_.textContent = p;
+  qty.textContent = fmt(e.q);
+  cnt.textContent = e.n;
+  bar.style.width = (e.q / maxQ * 100).toFixed(1) + "%";
+  if (touched && touched.has(p) && !REDUCED_MOTION) {
+    row.classList.remove("flash");
+    void row.offsetWidth;
+    row.classList.add("flash");
+  }
+}
+
+function wireText(op) {
+  if (op.k === 1) return `CANCEL #${op.id}`;
+  if (op.k === 2) return `MODIFY #${op.id} → ${op.q} @ ${op.p}`;
+  return `SUBMIT ${OTYPES[op.t]} ${op.s === 0 ? "BUY" : "SELL"} ${op.q} ${op.t === 1 ? "MKT" : "@ " + op.p}`;
+}
+
+function tapeItem(ev) {
+  const [t, s, r, id, mk, p, q] = ev;
+  const cls = t === 1 ? "trd" : t === 4 ? "rej" : "";
+  const dot = `<span class="sdot ${s === 0 ? "b" : "s"}"></span>`;
+  let txt;
+  if (t === 0) txt = `#${id} rests ${q} @ ${p}`;
+  else if (t === 1) txt = `#${id} × #${mk} — ${q} @ ${p}`;
+  else if (t === 2) txt = `#${id} cut to ${q} @ ${p}`;
+  else if (t === 3) txt = `#${id} pulled (${q} @ ${p})`;
+  else txt = `#${id} — ${REASONS[r] || "rejected"}`;
+  return `<li class="tev ${cls}"><span class="chip">${EVNAME[t]}</span>${dot}<span>${txt}</span></li>`;
+}
+
+let acc = 0, lastTs = null, rafId = null;
+function tick(ts) {
+  if (!replay.playing) return;
+  if (lastTs == null) lastTs = ts;
+  acc += (ts - lastTs) / 1000 * replay.speeds[replay.speedIx][1];
+  lastTs = ts;
+  const step = Math.floor(acc);
+  if (step > 0) {
+    acc -= step;
+    const target = Math.min(replay.i + step, REPLAY.ops.length);
+    seekTo(target);
+    if (target >= REPLAY.ops.length) setPlaying(false);
+  }
+  rafId = requestAnimationFrame(tick);
+}
+function setPlaying(on) {
+  replay.playing = on;
+  const b = $("#btn-play");
+  b.setAttribute("aria-pressed", String(on));
+  b.textContent = on ? "❚❚ Pause" : "▶ Play";
+  lastTs = null; acc = 0;
+  if (on) rafId = requestAnimationFrame(tick);
+  else if (rafId) cancelAnimationFrame(rafId);
+}
+
+$("#btn-play").addEventListener("click", () => {
+  if (!replay.playing && replay.i >= REPLAY.ops.length) seekTo(0);
+  setPlaying(!replay.playing);
+});
+$("#btn-restart").addEventListener("click", () => { setPlaying(false); seekTo(0); });
+$("#btn-fwd").addEventListener("click", () => { setPlaying(false); seekTo(Math.min(replay.i + 1, REPLAY.ops.length)); });
+$("#btn-back").addEventListener("click", () => { setPlaying(false); seekTo(Math.max(replay.i - 1, 0)); });
+$("#btn-speed").addEventListener("click", () => {
+  replay.speedIx = (replay.speedIx + 1) % replay.speeds.length;
+  $("#btn-speed").textContent = "×" + replay.speeds[replay.speedIx][0];
+});
+$("#scrub").addEventListener("input", e => { setPlaying(false); seekTo(+e.target.value); });
+$("#scrub").max = REPLAY.ops.length;
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
+  if (e.code === "Space") { e.preventDefault(); $("#btn-play").click(); }
+  else if (e.code === "ArrowRight") $("#btn-fwd").click();
+  else if (e.code === "ArrowLeft") $("#btn-back").click();
+});
+
+/* Open on a working book rather than an empty one, then run unless the
+   viewer asked for stillness. */
+seekTo(Math.min(400, REPLAY.ops.length));
+if (!REDUCED_MOTION) setPlaying(true);
+</script>

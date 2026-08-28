@@ -23,8 +23,16 @@ perf.data.old
 callgrind.out.*
 cachegrind.out.*
 
-# Keep the generated figures — they are referenced from the docs.
+# Keep the generated figures and summary tables — they are small, they are
+# referenced from RESULTS.md, and GitHub renders them.
 !docs/figures/*.png
+
+# The built dashboard is a generated artifact: a quarter-megabyte of minified
+# JSON inlined into one HTML file, which GitHub cannot render and no one should
+# read as source. What is tracked is everything needed to rebuild it —
+# docs/dashboard.template.html, docs/figures/dashboard_data.json, and the two
+# scripts. Rebuild with:  python3 scripts/build_dashboard.py
+docs/dashboard.html
 
 # Editors and local tooling
 .vscode/
