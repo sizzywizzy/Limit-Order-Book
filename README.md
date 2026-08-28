@@ -1,6 +1,6 @@
 # Limit Order Book & Matching Engine
 
-[![build and test](https://github.com/sizzywizzy/Limit-Order-Book/actions/workflows/ci.yml/badge.svg)](https://github.com/sizzywizzy/Limit-Order-Book/actions/workflows/ci.yml)
+[![build and test](https://github.com/sizzywizzy/Limit-Order-Book/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sizzywizzy/Limit-Order-Book/actions/workflows/ci.yml?query=branch%3Amain)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/23)
 [![CMake 3.16+](https://img.shields.io/badge/CMake-3.16%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
