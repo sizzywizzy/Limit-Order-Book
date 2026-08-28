@@ -18,8 +18,8 @@ trades, are what an exchange actually processes.
 
 | | |
 |---|---|
-| **Working today** | Both engines · full order-type set (limit, market, IOC, FOK) · modify semantics · deterministic event stream · three test layers green (10,000 property sequences, 1,000,000-op differential) · benchmark harness with recorded baseline · CI with sanitizers · plotting pipeline |
-| **Not built yet** | Profiling evidence and optimisation passes (the baseline is the "before" column) · depth/cancel-ratio scaling sweeps · self-trade prevention |
+| **Working today** | Both engines · full order-type set (limit, market, IOC, FOK) · modify semantics · deterministic event stream · three test layers green (10,000 property sequences, 1,000,000-op differential) · benchmark harness · depth scaling sweep · one optimisation pass with before/after · generated results dashboard |
+| **Not built yet** | Hardware-counter profiling (written; this machine's PMU is not visible to WSL2) · cancel-ratio sweep · self-trade prevention |
 | **Updated** | August 2026 |
 
 ---
@@ -45,17 +45,29 @@ operation:
 
 | Operation | Engine | p50 | p99 | p99.9 |
 |---|---|---|---|---|
-| Cancel | reference | 942 | 2,587 | 5,625 |
-| Cancel | **optimised** | **146** | **428** | **773** |
-| Add (passive) | reference | 1,686 | 2,840 | 20,014 |
-| Add (passive) | **optimised** | **130** | **404** | **699** |
-| Add (aggressive) | reference | 1,516 | 3,580 | 15,614 |
-| Add (aggressive) | **optimised** | **240** | **650** | **1,186** |
-| Modify (qty down) | reference | 1,380 | 3,375 | 5,530 |
-| Modify (qty down) | **optimised** | **90** | **305** | **630** |
+| Cancel | reference | 880 | 2,492 | 6,130 |
+| Cancel | **optimised** | **138** | **408** | **794** |
+| Add (passive) | reference | 1,494 | 2,734 | 24,584 |
+| Add (passive) | **optimised** | **119** | **387** | **639** |
+| Add (aggressive) | reference | 1,369 | 3,385 | 16,771 |
+| Add (aggressive) | **optimised** | **230** | **610** | **1,175** |
+| Modify (qty down) | reference | 1,271 | 3,261 | 16,059 |
+| Modify (qty down) | **optimised** | **89** | **308** | **646** |
 
 Steady-state allocations in the optimised engine over 100,000 operations: **0** (counted, not
 asserted).
+
+One book size proves little, so here is the measurement that actually tests the design. Across
+a **174× increase in book size** (46 → 8,019 resting orders), the reference engine's cancel p50
+grew **159×** and the optimised engine's grew **2.2×**:
+
+![cancel latency vs book size](docs/figures/latency_vs_depth.png)
+
+The optimised engine is not perfectly flat, and that is the honest part: its cancel path has no
+loop, so the growth is the memory hierarchy, not the algorithm. Holding the book fixed and
+growing the allocated footprint 1024× costs only 1.11× — so what matters is the number of
+distinct *live* entries touched, not the size of the structures around them
+([evidence](RESULTS.md#profiling-evidence)).
 
 **Every figure here is generated, none typed.** One `scripts/plot.py` invocation over the ten
 sample CSVs writes this table, the figures in RESULTS.md, *and* the dashboard's data, all from
@@ -386,15 +398,21 @@ is defensible.
 
 ## What I would do next
 
-- **Profile before optimising further.** The baseline table is the "before" column;
-  `perf stat` + cachegrind under WSL2/CI to see whether the remaining time is cache misses (the
-  bitmap says it shouldn't be) or the id-index probe.
-- **Scaling sweeps.** Depth 10 → 10,000 and cancel-ratio 0.5 → 0.99 (`--depth`,
-  `--cancel-ratio` already exist) — the plots that show O(N) vs O(1) rather than claiming it.
+- **Run the counters on bare metal.** `ob_bench --counters` is written and correct — it reads
+  cycles, instructions and cache misses through `perf_event_open` and brackets only the
+  measured region. It cannot run here: WSL2's hypervisor does not expose the PMU, which the
+  tool proves rather than assumes by falling back to a software event. One Linux boot turns
+  the cache explanation from a controlled inference into a measured miss rate.
+- **Sweep the cancel ratio** 0.5 → 0.99 (`--cancel-ratio` already exists). The depth sweep
+  showed the gap widening with book size; this shows it widening with cancel dominance, which
+  is the same argument from the other direction.
 - **A taker-terminal event** (`Done`/`Filled`) so fully-consumed IOC/market orders don't end
   silently — listed as an open question in DECISIONS.md.
 - **Self-trade prevention** once orders grow an owner field, with the policy matrix documented
   before the code, per the house rule.
+- **Pin the thread and fix the clocks.** Every figure here carries laptop variance; p50 and p99
+  are stable across seeds but the deep tail is the scheduler's. Pinned, frequency-locked runs
+  would make p99.9 worth quoting.
 
 ---
 
